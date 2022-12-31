@@ -1,0 +1,470 @@
+os.pullEvent = os.pullEventRaw
+
+-- MINOR FUNCTIONS
+
+local floor = math.floor;
+
+local function round(value)
+    return floor(value + 0.5)
+end
+
+-- Written by ChatGPT
+function wrap(text, line_length)
+    -- Split the text into a list of words
+    local words = {}
+    for word in string.gmatch(text, '%S+') do
+        table.insert(words, word)
+    end
+
+    local lines = {}
+    local line = ""
+    for i, word in ipairs(words) do
+        if #line + #word + 1 <= line_length then
+        -- Add the word to the line
+        line = line .. word .. " "
+        else
+        -- The line is full, so add it to the list of lines
+        -- and start a new line
+        table.insert(lines, string.sub(line, 1, #line - 1))
+        line = word .. " "
+        end
+    end
+    -- Add the final line to the list of lines
+    table.insert(lines, string.sub(line, 1, #line - 1))
+    return lines
+end
+
+function dictToArr(dict)
+    local arr = {}
+
+    for key, value in pairs(dict) do
+        table.insert(arr, value)
+    end
+
+    return arr
+end
+
+function searchTableForInstance(table, key, value)
+    for _, item in ipairs(table) do
+        if item[key] == value then
+            return item
+        end
+    end
+end
+
+-- CLASSES --
+
+------------------------
+------- INSTANCE -------
+------------------------
+
+local Instance = {
+    ["name"] = "",
+    ["screen"] = nil,
+    ["text"] = nil,
+    ["backgroundColor"] = colors.black,
+    ["textColor"] = colors.white,
+    ["x"] = 0,
+    ["y"] = 0,
+    ["z"] = 0,
+    ["visible"] = true,
+    ["justifyText"] = "center",
+    ["alignText"] = "center",
+    ["width"] = 0,
+    ["height"] = 3,
+    ["type"] = nil
+}
+Instance.__index = Instance
+
+function Instance.new(o)
+    o = o or {};
+    setmetatable(o, Instance)
+    return o
+end
+
+function Instance:display()
+    if (not self.visible) then return end
+
+    local frame = self.screen.frame
+    local x = self.x + frame.x;
+    local y = self.y + frame.y;
+    local periph = frame.device.peripheral
+
+    periph.setBackgroundColor(self.backgroundColor)
+    periph.setTextColor(self.textColor)
+
+    for i = 0, self.width - 1 do
+        for j = 0, self.height - 1 do
+            if (frame:contains(x + i, y + j)) then
+                periph.setCursorPos(x + i, y + j)
+                periph.write(" ");
+            end
+        end
+    end
+
+    local lines = wrap(self.text, self.width)
+    local startY = y;
+
+    if (self.alignText == "center") then
+        startY = startY + floor(self.height / 2) - floor(#lines / 2) 
+    elseif (self.alignText == "bottom") then
+        startY = startY + self.height - #lines
+    end
+
+    for i, line in ipairs(lines) do
+        local startX = x;
+
+        if (self.justifyText == "center") then
+            startX = startX + round(self.width / 2) - round(#line / 2);
+        elseif (self.justifyText == "right") then
+            startX = startX + self.width - #line
+        end
+        
+        local currY = startY + (i - 1);
+        local currX = startX
+
+        for i = 1, #line do
+            local char = line:sub(i,i)
+            
+            if (frame:contains(currX, currY)) then
+                periph.setCursorPos(currX, currY)
+                periph.write(char)
+            end
+
+            currX = currX + 1
+         end
+    end
+end
+
+local Label = Instance.new();
+Label.__index = Label
+
+function Label.new(o)
+    o = o or {};
+    setmetatable(o, Label)
+    return o
+end
+
+local Button = Instance.new({
+    ["onClick"] = nil;
+});
+Button.__index = Button
+
+function Button.new(o)
+    o = o or {};
+    setmetatable(o, Button)
+    return o
+end
+
+function Button:contains(x, y)
+    local screen = self.screen;
+    local frame = screen.frame;
+
+    local adjX = self.x + frame.x
+    local adjY = self.y + frame.y
+
+    if (x < adjX or x > adjX + self.width - 1) then
+        return false
+    end
+
+    if (y < adjY or y > adjY + self.height - 1) then
+        return false
+    end
+
+    return true
+end
+
+local Textinput = Instance.new();
+Textinput.__index = Textinput
+
+function Textinput.new(o)
+    o = o or {};
+    setmetatable(o, Textinput)
+    return o
+end
+
+local instances = {
+    ["label"] = Label;
+    ["button"] = Button;
+    ["Textinput"] = Textinput;
+}
+
+----------------------
+------- SCREEN -------
+----------------------
+
+local Screen = {
+    ["name"] = "",
+    ["backgroundColor"] = colors.black,
+    ["onDisplay"] = nil,
+    ["onUpdate"] = nil,
+    ["frame"] = nil,
+    ["children"] = {},
+    ["width"] = 0,
+    ["height"] = 0
+}
+Screen.__index = Screen
+
+function Screen.new(o)
+    o = o or {};
+    o.children = {};
+    setmetatable(o, Screen)
+    return o
+end
+
+function Screen:newInstance(name, instanceType, props)
+    props = props or {};
+
+    local newInstance = instances[instanceType].new(props);
+    newInstance.name = name
+    newInstance.screen = self
+    newInstance.type = instanceType
+    
+    self.children[name] = newInstance;
+
+    return newInstance
+end
+
+function Screen:display()
+    if (self.onUpdate) then
+        self.onUpdate();
+    end
+
+    local frame = self.frame
+    local periph = frame.device.peripheral
+
+    periph.setBackgroundColor(self.backgroundColor)
+    
+    for i = frame.x, frame.x + self.width - 1 do
+        for j = frame.y, frame.y + self.height - 1 do
+            periph.setCursorPos(i, j)
+            periph.write(" ")
+        end
+    end
+
+    local arr = dictToArr(self.children)
+    table.sort(arr, function(a, b) return a.z < b.z end)
+    
+    for _, instance in ipairs(arr) do
+        instance:display();
+    end
+end
+
+---------------------
+------- FRAME -------
+---------------------
+
+local Frames = {};
+
+local Frame = {
+    ["name"] = "",
+    ["x"] = 1,
+    ["y"] = 1,
+    ["z"] = 0,
+    ["width"] = 0,
+    ["height"] = 0,
+    ["device"] = nil,
+    ["currentScreen"] = nil,
+    ["draggable"] = false,
+    ["screens"] = {}
+}
+Frame.__index = Frame
+
+function Frame.new(o)
+    o = o or {};
+    setmetatable(o, Frame)
+    table.insert(Frames, o);
+    return o
+end
+
+function Frame:newScreen(name, props)
+    props = props or {};
+    
+    local newScreen = Screen.new(props)
+    
+    newScreen.name = name;
+    newScreen.width = self.width
+    newScreen.height = self.height
+
+    newScreen.frame = self;
+    self.screens[name] = newScreen;
+
+    return newScreen
+end
+
+function Frame:contains(x, y)
+    if (x < self.x or x > self.x + self.width - 1) then
+        return false
+    end
+
+    if (y < self.y or y > self.y + self.height - 1) then
+        return false
+    end
+
+    return true
+end
+
+function Frame:render()
+    self.currentScreen:display()
+end
+
+function Frame:setScreen(screen)
+    self.currentScreen = screen;
+
+    if (screen.onDisplay) then
+        screen.onDisplay();
+    end
+end
+
+----------------------
+------- DEVICE -------
+----------------------
+
+local Devices = {};
+
+local Device = {
+    ["peripheral"] = term,
+    ["frames"] = {},
+    ["framerate"] = 20
+}
+Device.__index = Device
+
+function Device.new(o)
+    o = o or {};
+    setmetatable(o, Device)
+
+    local width, height = o.peripheral.getSize();
+    o.width = width;
+    o.height = height;
+    o.frames = {};
+
+    table.insert(Devices, o)
+
+    return o
+end
+
+function Device:newFrame(name, props)
+    props = props or {};
+    local newFrame = Frame.new(props);
+    newFrame.device = self
+    newFrame.name = name;   
+
+    if (props.width == 0) then
+        newFrame.width = self.width
+    end
+
+    if (props.height == 0) then
+        newFrame.height = self.height
+    end
+
+    self.frames[name] = newFrame;
+
+    return newFrame;
+end
+
+function Device:rerender()
+    self.peripheral.setBackgroundColor(colors.black)
+    self.peripheral.clear()
+
+    local arr = dictToArr(self.frames)
+    table.sort(arr, function(a, b) return a.z < b.z end)
+    
+    for _, frame in ipairs(arr) do
+        frame:render()
+    end
+end
+
+function Device:findClick(x, y)
+    -- candidate frames
+    local cframes = {};
+
+    for key, frame in pairs(self.frames) do
+        if (frame:contains(x, y)) then
+            table.insert(cframes, frame)
+        end
+    end
+
+    -- sorts them by z and selects the one with the highest z value
+    table.sort(cframes, function(a, b) return a.z > b.z end)
+
+    local frame = cframes[1];
+
+    -- candidate instances
+    local cinstances = {};
+
+    for key, child in pairs(frame.currentScreen.children) do
+        if (child.type == "button" and child:contains(x, y)) then
+            table.insert(cinstances, child)
+        end
+    end
+
+    table.sort(cinstances, function (a, b) return a.z > b.z end)
+
+    local instance = cinstances[1];
+
+    return frame, instance
+end
+
+function newDevice(o)
+    local device = Device.new(o);
+    return device
+end
+
+function eventHandler()
+    while true do
+        local event, p1, p2, p3 = os.pullEvent()
+
+        if (event == "mouse_click") then
+            local mouseButton = p1;
+            local x = p2;
+            local y = p3;
+
+            -- find the terminal device
+            local device = searchTableForInstance(Devices, "peripheral", term);
+            local frame, button = device:findClick(x, y);
+
+            if (frame) then
+                local z = 0;
+
+                -- Finds the highest z value and sets the current frame to that, and then removes one from all other frames
+                for _, xframe in pairs(device.frames) do
+                    if (xframe ~= frame) then
+                        if (xframe.z > z) then
+                            z = xframe.z
+                        end
+                        xframe.z = xframe.z - 1
+                    end
+                end
+
+                frame.z = z;
+            end
+
+            if (button) then
+                if (button.onClick) then
+                    button.onClick();
+                end
+            end
+        end
+    end
+end
+
+function renderHandler(main)
+    while true do
+        os.sleep(0.05)
+        main();
+        
+        for _, device in ipairs(Devices) do
+            if (os.clock() % (1 / device.framerate) < 0.05) then
+                device:rerender();
+            end
+        end
+    end
+end
+
+function beginTasks(main)
+    parallel.waitForAll(
+        function() renderHandler(main) end,
+        eventHandler
+    )
+end
+
