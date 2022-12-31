@@ -1,5 +1,26 @@
 os.pullEvent = os.pullEventRaw
 
+-- VARIABLES --
+
+local complimentaryColors = {
+    [colors.black] = colors.white,
+    [colors.blue] = colors.orange,
+    [colors.brown] = colors.cyan,
+    [colors.cyan] = colors.red,
+    [colors.gray] = colors.purple,
+    [colors.green] = colors.magenta,
+    [colors.lightBlue] = colors.yellow,
+    [colors.lightGray] = colors.pink,
+    [colors.lime] = colors.purple,
+    [colors.magenta] = colors.green,
+    [colors.orange] = colors.blue,
+    [colors.pink] = colors.lightGray,
+    [colors.purple] = colors.lime,
+    [colors.red] = colors.cyan,
+    [colors.yellow] = colors.lightBlue,
+    [colors.white] = colors.red
+}
+
 -- MINOR FUNCTIONS
 
 local floor = math.floor;
@@ -61,7 +82,7 @@ end
 local Instance = {
     ["name"] = "",
     ["screen"] = nil,
-    ["text"] = nil,
+    ["text"] = "",
     ["backgroundColor"] = colors.black,
     ["textColor"] = colors.white,
     ["x"] = 0,
@@ -248,6 +269,10 @@ function Screen:display()
     for _, instance in ipairs(arr) do
         instance:display();
     end
+
+    for _, instance in pairs(frame.globals) do
+        instance:display();
+    end
 end
 
 ---------------------
@@ -266,12 +291,14 @@ local Frame = {
     ["device"] = nil,
     ["currentScreen"] = nil,
     ["draggable"] = false,
-    ["screens"] = {}
+    ["screens"] = {},
+    ["globals"] = {}
 }
 Frame.__index = Frame
 
 function Frame.new(o)
     o = o or {};
+    o.globals = {};
     setmetatable(o, Frame)
     table.insert(Frames, o);
     return o
@@ -311,6 +338,12 @@ end
 function Frame:setScreen(screen)
     self.currentScreen = screen;
 
+    self.globals.topbar.backgroundColor = complimentaryColors[screen.backgroundColor]
+
+    for _, instance in pairs(self.globals) do
+        instance.screen = screen;
+    end
+
     if (screen.onDisplay) then
         screen.onDisplay();
     end
@@ -345,16 +378,32 @@ end
 
 function Device:newFrame(name, props)
     props = props or {};
+
+    if (props.draggable == nil and props.width ~= self.width and props.height ~= self.height) then
+        props.draggable = true;
+    end
+
+    if (props.width == 0 or props.width == nil) then
+        props.width = self.width
+    end
+
+    if (props.height == 0 or props.height == nil) then
+        props.height = self.height
+    end
+
     local newFrame = Frame.new(props);
     newFrame.device = self
     newFrame.name = name;   
-
-    if (props.width == 0) then
-        newFrame.width = self.width
-    end
-
-    if (props.height == 0) then
-        newFrame.height = self.height
+    
+    if (newFrame.draggable) then
+        local newTopbar = Button.new({
+            ["name"] = "topbar",
+            ["width"] = props.width,
+            ["height"] = 1,
+            ["z"] = 10000,
+            ["type"] = "button"
+        })
+        newFrame.globals["topbar"] = newTopbar
     end
 
     self.frames[name] = newFrame;
@@ -384,6 +433,8 @@ function Device:findClick(x, y)
         end
     end
 
+    if #cframes == 0 then return end
+
     -- sorts them by z and selects the one with the highest z value
     table.sort(cframes, function(a, b) return a.z > b.z end)
 
@@ -392,7 +443,13 @@ function Device:findClick(x, y)
     -- candidate instances
     local cinstances = {};
 
-    for key, child in pairs(frame.currentScreen.children) do
+    for _, child in pairs(frame.currentScreen.children) do
+        if (child.type == "button" and child:contains(x, y)) then
+            table.insert(cinstances, child)
+        end
+    end
+
+    for _, child in pairs(frame.globals) do
         if (child.type == "button" and child:contains(x, y)) then
             table.insert(cinstances, child)
         end
@@ -411,6 +468,13 @@ function newDevice(o)
 end
 
 function eventHandler()
+    local x1 = 0;
+    local y1 = 0;
+    local ox = 0;
+    local oy = 0;
+    local mouseDown = false;
+    local selectedButton = nil;
+
     while true do
         local event, p1, p2, p3 = os.pullEvent()
 
@@ -419,12 +483,22 @@ function eventHandler()
             local x = p2;
             local y = p3;
 
+            x1 = x
+            y1 = y
+            
+            mouseDown = true;
+
             -- find the terminal device
             local device = searchTableForInstance(Devices, "peripheral", term);
             local frame, button = device:findClick(x, y);
 
+            selectedButton = button
+
             if (frame) then
                 local z = 0;
+
+                ox = x1 - frame.x
+                oy = y1 - frame.y
 
                 -- Finds the highest z value and sets the current frame to that, and then removes one from all other frames
                 for _, xframe in pairs(device.frames) do
@@ -443,6 +517,25 @@ function eventHandler()
                 if (button.onClick) then
                     button.onClick();
                 end
+            end
+        end
+
+        if (event == "mouse_up") then
+            mouseDown = false;
+        end
+
+        if (event == "mouse_drag" and mouseDown) then
+            if (selectedButton and selectedButton.name == "topbar") then
+                local frame = selectedButton.screen.frame
+
+                local x2 = p2;
+                local y2 = p3;
+
+                local dx = x2 - ox
+                local dy = y2 - oy
+
+                frame.x = dx
+                frame.y = dy
             end
         end
     end
