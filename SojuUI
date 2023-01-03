@@ -162,6 +162,11 @@ Label.__index = Label
 
 function Label.new(o)
     o = o or {};
+
+    if (not o.width and o.text) then
+        o.width = #o.text + 2
+    end
+
     setmetatable(o, Label)
     return o
 end
@@ -338,8 +343,10 @@ end
 function Frame:setScreen(screen)
     self.currentScreen = screen;
 
-    self.globals.topbar.backgroundColor = complimentaryColors[screen.backgroundColor]
-
+    if (self.globals.topbar) then
+        self.globals.topbar.backgroundColor = complimentaryColors[screen.backgroundColor]
+    end
+    
     for _, instance in pairs(self.globals) do
         instance.screen = screen;
     end
@@ -379,16 +386,16 @@ end
 function Device:newFrame(name, props)
     props = props or {};
 
-    if (props.draggable == nil and props.width ~= self.width and props.height ~= self.height) then
-        props.draggable = true;
-    end
-
     if (props.width == 0 or props.width == nil) then
         props.width = self.width
     end
 
     if (props.height == 0 or props.height == nil) then
         props.height = self.height
+    end
+
+    if (props.width ~= self.width and props.height ~= self.height) then
+        props.draggable = true;
     end
 
     local newFrame = Frame.new(props);
@@ -560,4 +567,3 @@ function beginTasks(main)
         eventHandler
     )
 end
-
